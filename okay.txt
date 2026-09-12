@@ -1,0 +1,828 @@
+ஆம் 👍 மூணு files-யும் பார்த்தேன். Overall code நல்லா இருக்கு. Major syntax error எதுவும் இல்லை. But சில important corrections இருக்கு. குறிப்பாக main.py-ல study_plan create பண்ணுறீங்க, ஆனால் database-la save பண்ணல; update-லயும் study plan இல்லை.
+
+நான் மூணு files-யும் correct பண்ணி தர்றேன்.
+
+1. database.py
+உங்க database.py almost correct. இதுல பெரிய மாற்றம் தேவையில்லை.
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+DATABASE_URL = "sqlite:///./studymate.db"
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+Base = declarative_base()
+
+✅ இது correct.
+
+2. models.py
+இதுவும் mostly correct.
+
+ஒரு small correction: study_hours-க்கு நீங்க main.py-ல int கொடுத்திருக்கீங்க, ஆனால் database-la Float வைத்திருக்கீங்க. User 3.5 hours மாதிரி கொடுக்கணும்னா Float நல்லது. அதனால் இதை அப்படியே வைக்கலாம்.
+
+from sqlalchemy import Column, Integer, String, Float
+from database import Base
+
+
+class StudentDB(Base):
+    __tablename__ = "students"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    study_hours = Column(Float)
+    mark = Column(Float)
+    level = Column(String)
+    suggestion = Column(String)
+
+✅ இதுவும் correct.
+
+3. main.py
+இங்க தான் சில corrections தேவை.
+
+முக்கியமான பிரச்சினை
+நீங்க:
+
+study_plan = "..."
+
+nu create பண்ணுறீங்க.
+
+ஆனா StudentDB-க்குள்ள study_plan column இல்ல.
+
+அதனால் database-la study plan save ஆகாது.
+
+மேலும் PUT update பண்ணும்போது study plan calculate பண்ணவே இல்லை.
+
+நான் அதை correct பண்ணியிருக்கேன்.
+
+Corrected main.py
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import engine, SessionLocal, Base
+from models import StudentDB
+
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class Student(BaseModel):
+    name: str
+    study_hours: float
+    mark: float
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.get("/")
+def home():
+    return {"message": "StudyMate API is working!"}
+
+
+def get_student_level(mark):
+    if mark >= 90:
+        return "Excellent"
+    elif mark >= 75:
+        return "Very Good"
+    elif mark >= 50:
+        return "Good"
+    else:
+        return "Needs Improvement"
+
+
+def get_suggestion(study_hours):
+    if study_hours >= 5:
+        return "Keep up the good study routine!"
+    elif study_hours >= 3:
+        return "Try to increase your study hours."
+    else:
+        return "You need to spend more time studying."
+
+
+def get_study_plan(mark):
+    if mark >= 90:
+        return "Revise important topics and practice mock tests."
+    elif mark >= 75:
+        return "Spend 1 hour on revision and 1 hour on weak topics."
+    elif mark >= 50:
+        return "Study 2 hours daily and practice important questions."
+    else:
+        return "Study 3 hours daily and focus more on weak subjects."
+
+
+@app.post("/student")
+def create_student(
+    student: Student,
+    db: Session = Depends(get_db)
+):
+
+    level = get_student_level(student.mark)
+    suggestion = get_suggestion(student.study_hours)
+    study_plan = get_study_plan(student.mark)
+
+    new_student = StudentDB(
+        name=student.name,
+        study_hours=student.study_hours,
+        mark=student.mark,
+        level=level,
+        suggestion=suggestion
+    )
+
+    db.add(new_student)
+    db.commit()
+    db.refresh(new_student)
+
+    return {
+        "message": "Student saved successfully!",
+        "id": new_student.id,
+        "name": new_student.name,
+        "study_hours": new_student.study_hours,
+        "mark": new_student.mark,
+        "level": new_student.level,
+        "suggestion": new_student.suggestion,
+        "study_plan": study_plan
+    }
+
+
+@app.get("/students")
+def get_students(db: Session = Depends(get_db)):
+
+    students = db.query(StudentDB).all()
+
+    result = []
+
+    for student in students:
+        result.append({
+            "id": student.id,
+            "name": student.name,
+            "study_hours": student.study_hours,
+            "mark": student.mark,
+            "level": student.level,
+            "suggestion": student.suggestion,
+            "study_plan": get_study_plan(student.mark)
+        })
+
+    return {
+        "students": result
+    }
+
+
+@app.put("/student/{student_id}")
+def update_student(
+    student_id: int,
+    student: Student,
+    db: Session = Depends(get_db)
+):
+
+    existing_student = (
+        db.query(StudentDB)
+        .filter(StudentDB.id == student_id)
+        .first()
+    )
+
+    if existing_student is None:
+        return {
+            "message": "Student not found"
+        }
+
+    level = get_student_level(student.mark)
+    suggestion = get_suggestion(student.study_hours)
+    study_plan = get_study_plan(student.mark)
+
+    existing_student.name = student.name
+    existing_student.study_hours = student.study_hours
+    existing_student.mark = student.mark
+    existing_student.level = level
+    existing_student.suggestion = suggestion
+
+    db.commit()
+    db.refresh(existing_student)
+
+    return {
+        "message": "Student updated successfully!",
+        "id": existing_student.id,
+        "name": existing_student.name,
+        "study_hours": existing_student.study_hours,
+        "mark": existing_student.mark,
+        "level": existing_student.level,
+        "suggestion": existing_student.suggestion,
+        "study_plan": study_plan
+    }
+
+
+@app.delete("/student/{student_id}")
+def delete_student(
+    student_id: int,
+    db: Session = Depends(get_db)
+):
+
+    existing_student = (
+        db.query(StudentDB)
+        .filter(StudentDB.id == student_id)
+        .first()
+    )
+
+    if existing_student is None:
+        return {
+            "message": "Student not found"
+        }
+
+    db.delete(existing_student)
+    db.commit()
+
+    return {
+        "message": "Student deleted successfully!",
+        "id": student_id
+    }
+
+நான் என்ன change பண்ணினேன்?
+study_hours: int → float
+3.5 hours போன்ற values accept பண்ணலாம்.
+Level calculation-ஐ separate function-ஆ மாற்றினேன்.
+Suggestion calculation-ஐ separate function-ஆ மாற்றினேன்.
+Study plan calculation-ஐ separate function-ஆ மாற்றினேன்.
+/students endpoint-ஐ clean JSON format-ல return பண்ணினேன்.
+Update endpoint-லும் study_plan return ஆகும்.
+Code repetition குறைத்திருக்கேன்.
+"Revision important topics" → "Revise important topics" grammar fix பண்ணினேன்.
+ஒரு முக்கிய விஷயம்: study_plan database-la permanently save ஆகணும்னா models.py-ல study_plan column add பண்ண வேண்டும். இப்போதைக்கு அது mark-ஐ வைத்து எப்போதும் calculate பண்ணிக்கொள்ளும் மாதிரி வைத்திருக்கேன்.
+
+இப்போ next
+இந்த 3 files-um பார்த்தாச்சு. அடுத்தது உங்க HTML frontend code-ஐ முழுசா paste பண்ணுங்க. அதையும் இந்த backend-க்கு properly connect ஆகுதா, buttons வேலை செய்யுமா, student data display ஆகுமா என்று check பண்ணலாம்.
+
+
+
+ஆம் 👍 HTML-ஐ முழுசா பார்த்தேன். **Overall frontend நல்லா இருக்கு**, backend-க்கும் mostly correct-ah connect ஆகுது. ஆனால் **2 definite bugs** இருக்கு; அதோட சில improvements பண்ணினா project much better ஆகும்.
+
+ ### முக்கியமான bugs
+
+ 1. Delete URL-ல:
+
+```
+http://127.0.01:8000
+```
+
+ இருக்கு. இது typo.\
+ Correct:
+
+```
+http://127.0.0.1:8000
+```
+
+ 2. Delete முடிஞ்சதும்:
+
+```
+loadStudent();
+```
+
+ nu இருக்கு.
+
+ ஆனா உங்க function பெயர்:
+
+```
+loadStudents();
+```
+
+ அதனால் delete பண்ணும்போது error வரும்.
+
+ 3. `study_plan` dashboard card-la காட்டல. Backend already அதை return பண்ணுது. அதை display பண்ணலாம்.
+4. Mark-க்கு `0–100` validation இல்ல. User `150` கொடுத்தாலும் backend accept பண்ணும்.
+5. Study hours negative value-ம் accept ஆகலாம்.
+6. `onclick="editStudent(... '${student.name}' ...)"` method-ல student name-க்குள்ள `'` இருந்தா problem வரலாம். Example: `John's` என்ற name.
+
+ ### Corrected HTML
+
+ உங்க existing code-ஐ clean பண்ணி, bugs fix பண்ணிய version இதோ:
+
+ Corrected StudyMate Frontend
+
+```
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>StudyMate</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f7fb;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 36px;
+        }
+
+        body > p {
+            text-align: center;
+            color: #666;
+        }
+
+        form,
+        #result,
+        #dashboard {
+            background: white;
+            padding: 25px;
+            margin-top: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-top: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            background: #4f46e5;
+            color: white;
+        }
+
+        button:hover {
+            background: #3730a3;
+        }
+
+        h2 {
+            margin-top: 30px;
+        }
+
+        #students-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .student-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border-left: 5px solid #4f46e5;
+        }
+
+        .student-card h3 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+
+        .student-card p {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>📖 StudyMate</h1>
+
+    <p>Smart Student Study Planner</p>
+
+    <form id="studentForm">
+
+        <label for="name">Student Name:</label>
+        <input type="text" id="name" required>
+
+        <br><br>
+
+        <label for="study_hours">Study Hours:</label>
+        <input
+            type="number"
+            id="study_hours"
+            step="0.1"
+            min="0"
+            required
+        >
+
+        <br><br>
+
+        <label for="mark">Mark:</label>
+        <input
+            type="number"
+            id="mark"
+            step="0.1"
+            min="0"
+            max="100"
+            required
+        >
+
+        <br><br>
+
+        <button type="submit">Generate Study Plan</button>
+
+    </form>
+
+    <h2>Result</h2>
+
+    <div id="result"></div>
+
+    <h2>Student Dashboard</h2>
+
+    <button onclick="loadStudents()">View All Students</button>
+
+    <div id="students-container"></div>
+
+    <script>
+
+        const API_URL = "http://127.0.0.1:8000";
+
+        const form = document.getElementById("studentForm");
+
+        // Create student
+        form.addEventListener("submit", async function(event) {
+
+            event.preventDefault();
+
+            const name = document.getElementById("name").value.trim();
+
+            const study_hours = Number(
+                document.getElementById("study_hours").value
+            );
+
+            const mark = Number(
+                document.getElementById("mark").value
+            );
+
+            if (study_hours < 0) {
+                alert("Study hours cannot be negative.");
+                return;
+            }
+
+            if (mark < 0 || mark > 100) {
+                alert("Mark must be between 0 and 100.");
+                return;
+            }
+
+            try {
+
+                const response = await fetch(`${API_URL}/student`, {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        name: name,
+                        study_hours: study_hours,
+                        mark: mark
+                    })
+
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error("Failed to save student");
+                }
+
+                document.getElementById("result").innerHTML = `
+
+                    <p>
+                        <b>Name:</b> ${data.name}
+                    </p>
+
+                    <p>
+                        <b>Study Hours:</b> ${data.study_hours}
+                    </p>
+
+                    <p>
+                        <b>Mark:</b> ${data.mark}
+                    </p>
+
+                    <p>
+                        <b>Level:</b> ${data.level}
+                    </p>
+
+                    <p>
+                        <b>Suggestion:</b> ${data.suggestion}
+                    </p>
+
+                    <p>
+                        <b>Study Plan:</b> ${data.study_plan}
+                    </p>
+
+                `;
+
+                form.reset();
+
+            } catch (error) {
+
+                console.error(error);
+
+                document.getElementById("result").innerHTML =
+                    "<p>❌ Could not connect to StudyMate API.</p>";
+
+            }
+
+        });
+
+        // Load all students
+        async function loadStudents() {
+
+            try {
+
+                const response = await fetch(`${API_URL}/students`);
+
+                const data = await response.json();
+
+                const container =
+                    document.getElementById("students-container");
+
+                container.innerHTML = "";
+
+                if (data.students.length === 0) {
+
+                    container.innerHTML =
+                        "<p>No students found.</p>";
+
+                    return;
+                }
+
+                data.students.forEach(student => {
+
+                    const card = document.createElement("div");
+
+                    card.className = "student-card";
+
+                    card.innerHTML = `
+
+                        <h3>🎓 ${student.name}</h3>
+
+                        <p>
+                            📚 <b>Study Hours:</b>
+                            ${student.study_hours}
+                        </p>
+
+                        <p>
+                            📝 <b>Mark:</b>
+                            ${student.mark}
+                        </p>
+
+                        <p>
+                            🏆 <b>Level:</b>
+                            ${student.level}
+                        </p>
+
+                        <p>
+                            💡 <b>Suggestion:</b>
+                            ${student.suggestion}
+                        </p>
+
+                        <p>
+                            📖 <b>Study Plan:</b>
+                            ${student.study_plan}
+                        </p>
+
+                        <button
+                            onclick="editStudent(
+                                ${student.id},
+                                ${JSON.stringify(student.name)},
+                                ${student.study_hours},
+                                ${student.mark}
+                            )"
+                        >
+                            ✏️ Edit
+                        </button>
+
+                        <button
+                            onclick="deleteStudent(${student.id})"
+                        >
+                            🗑️ Delete
+                        </button>
+
+                    `;
+
+                    container.appendChild(card);
+
+                });
+
+            } catch (error) {
+
+                console.error(error);
+
+                document.getElementById("students-container").innerHTML =
+                    "<p>❌ Could not load students.</p>";
+
+            }
+
+        }
+
+        // Delete student
+        async function deleteStudent(studentId) {
+
+            const confirmDelete =
+                confirm("Are you sure you want to delete this student?");
+
+            if (!confirmDelete) {
+                return;
+            }
+
+            try {
+
+                const response = await fetch(
+                    `${API_URL}/student/${studentId}`,
+                    {
+                        method: "DELETE"
+                    }
+                );
+
+                const data = await response.json();
+
+                alert(data.message);
+
+                // Correct function name
+                loadStudents();
+
+            } catch (error) {
+
+                console.error(error);
+
+                alert("Could not delete student.");
+
+            }
+
+        }
+
+        // Edit student
+        async function editStudent(
+            studentId,
+            oldName,
+            oldStudyHours,
+            oldMark
+        ) {
+
+            const name =
+                prompt("Enter student name:", oldName);
+
+            if (name === null) {
+                return;
+            }
+
+            const studyHours =
+                prompt("Enter study hours:", oldStudyHours);
+
+            if (studyHours === null) {
+                return;
+            }
+
+            const mark =
+                prompt("Enter mark:", oldMark);
+
+            if (mark === null) {
+                return;
+            }
+
+            const newStudyHours = Number(studyHours);
+            const newMark = Number(mark);
+
+            if (newStudyHours < 0) {
+
+                alert("Study hours cannot be negative.");
+
+                return;
+            }
+
+            if (newMark < 0 || newMark > 100) {
+
+                alert("Mark must be between 0 and 100.");
+
+                return;
+            }
+
+            try {
+
+                const response = await fetch(
+                    `${API_URL}/student/${studentId}`,
+                    {
+                        method: "PUT",
+
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            name: name.trim(),
+                            study_hours: newStudyHours,
+                            mark: newMark
+                        })
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+
+                    alert("Update failed!");
+
+                    return;
+                }
+
+                alert(data.message);
+
+                loadStudents();
+
+            } catch (error) {
+
+                console.error(error);
+
+                alert("Could not update student.");
+
+            }
+
+        }
+
+    </script>
+
+</body>
+
+</html>
+```
+
+ ### இப்போ உங்க project எப்படி work ஆகும்?
+
+```
+HTML Frontend
+      ↓
+FastAPI (main.py)
+      ↓
+SQLAlchemy
+      ↓
+SQLite Database
+      ↓
+studymate.db
+```
+
+ அதாவது:
+
+ - **HTML** → student details கேட்கும்
+- **FastAPI** → data process பண்ணும்
+- **models.py** → database table structure
+- **database.py** → SQLite connection
+- **studymate.db** → student data store ஆகும்
+
+ ### ⚠️ இன்னொரு important விஷயம்
+
+ உங்க `main.py`-ல:
+
+```
+allow_origins=["*"]
+```
+
+ இது **development/testing-ku okay**. Later project deploy பண்ணும்போது security காரணமாக restrict பண்ணணும்.
+
+ இப்போ **உங்க StudyMate project-oda 3 Python files + HTML** பார்த்தாச்சு. Next முக்கியமானது **`requirements.txt` இருக்கா / இல்லையா** என்பதுதான். அது இல்லன்னா project-ஐ வேறொரு computer-la run பண்ணும்போது FastAPI, SQLAlchemy போன்ற packages install பண்ணுவது difficult ஆகும்.
+
+ **அடுத்தது உங்க folder-la இருக்கிற மற்ற file என்னன்னு சொல்லுங்க** — especially `.db` file அல்லது வேற Python file. ಅದையும் check பண்ணலாம்.
