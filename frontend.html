@@ -180,6 +180,12 @@
         }
 
 
+        #result {
+
+            margin-top: 20px;
+        }
+
+
         /* RESULT */
 
         .result-card {
@@ -779,9 +785,14 @@
             </div>
 
 
+        <!-- (debug bar removed) -->
+
+
             <button
-                type="submit"
+                type="button"
+                id="submitBtn"
                 class="primary-btn"
+                onclick="generateStudyPlan()"
             >
 
                 📖 Generate Study Plan
@@ -789,15 +800,14 @@
             </button>
 
 
+            <!-- RESULT -->
+
+            <div id="result"></div>
+
+
         </form>
 
     </div>
-
-
-
-    <!-- RESULT -->
-
-    <div id="result"></div>
 
 
 
@@ -885,6 +895,25 @@
 
 
 
+    <!-- CHART -->
+
+    <div class="chart-container">
+
+        <h2>
+            📈 Student Performance
+        </h2>
+
+
+        <div class="chart-box">
+
+            <canvas id="marksChart"></canvas>
+
+        </div>
+
+    </div>
+
+
+
     <!-- SEARCH -->
 
     <div class="search-card">
@@ -912,25 +941,6 @@
                 Clear
 
             </button>
-
-        </div>
-
-    </div>
-
-
-
-    <!-- CHART -->
-
-    <div class="chart-container">
-
-        <h2>
-            📈 Student Performance
-        </h2>
-
-
-        <div class="chart-box">
-
-            <canvas id="marksChart"></canvas>
 
         </div>
 
@@ -1010,17 +1020,97 @@ let marksChart = null;
 
 
 /* =========================================
+   ESCAPE HTML
+   Prevents a student name containing quotes,
+   <, > etc. from breaking the card markup or
+   the data-* attributes it's placed into.
+========================================= */
+
+function escapeHtml(value) {
+
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+}
+
+
+
+/* =========================================
+   EDIT / DELETE BUTTON CLICKS
+   Uses event delegation + data-* attributes
+   instead of inline onclick, so values never
+   have to be embedded as raw JS inside an
+   HTML attribute (that was breaking the Edit
+   button whenever JSON.stringify added its
+   own double quotes).
+========================================= */
+
+studentsContainer.addEventListener(
+    "click",
+    function(event) {
+
+        const button = event.target.closest(
+            "button[data-action]"
+        );
+
+        if (!button) {
+            return;
+        }
+
+        const studentId = Number(
+            button.dataset.id
+        );
+
+        if (button.dataset.action === "delete") {
+
+            deleteStudent(studentId);
+
+        } else if (button.dataset.action === "edit") {
+
+            editStudent(
+                studentId,
+                button.dataset.name,
+                button.dataset.studyHours,
+                button.dataset.mark
+            );
+
+        }
+
+    }
+);
+
+
+
+/* =========================================
    CREATE STUDENT
 ========================================= */
 
 
-form.addEventListener(
-    "submit",
-    async function(event) {
+const submitBtn =
+    document.getElementById(
+        "submitBtn"
+    );
 
 
-        event.preventDefault();
+const debugBar = null; // debug bar removed from the page
 
+
+function setDebug(text) {
+
+    console.log(text);
+
+}
+
+
+async function generateStudyPlan() {
+
+    try {
+
+        setDebug("Button clicked. Reading form fields...");
 
         const name =
             document.getElementById(
@@ -1028,61 +1118,50 @@ form.addEventListener(
             ).value.trim();
 
 
-        const study_hours =
-            Number(
-                document.getElementById(
-                    "study_hours"
-                ).value
-            );
+        const studyHoursRaw =
+            document.getElementById(
+                "study_hours"
+            ).value;
 
 
-        const mark =
-            Number(
-                document.getElementById(
-                    "mark"
-                ).value
-            );
+        const markRaw =
+            document.getElementById(
+                "mark"
+            ).value;
 
 
-        if (
-            name === ""
-        ) {
+        const study_hours = Number(studyHoursRaw);
+        const mark = Number(markRaw);
 
-            alert(
-                "Please enter student name."
-            );
 
+        setDebug(
+            "Values read -> name: '" + name +
+            "', study_hours: '" + studyHoursRaw +
+            "' (" + study_hours + ")" +
+            ", mark: '" + markRaw + "' (" + mark + ")"
+        );
+
+
+        if (name === "") {
+            setDebug("Stopped: name is empty.");
+            alert("Please enter student name.");
             return;
+        }
 
+        if (studyHoursRaw === "" || Number.isNaN(study_hours) || study_hours < 0) {
+            setDebug("Stopped: study hours is missing or invalid.");
+            alert("Please enter a valid study hours (0 or more).");
+            return;
+        }
+
+        if (markRaw === "" || Number.isNaN(mark) || mark < 0 || mark > 100) {
+            setDebug("Stopped: mark is missing or invalid.");
+            alert("Please enter a valid mark (0 to 100).");
+            return;
         }
 
 
-        if (
-            study_hours < 0
-        ) {
-
-            alert(
-                "Study hours cannot be negative."
-            );
-
-            return;
-
-        }
-
-
-        if (
-            mark < 0 ||
-            mark > 100
-        ) {
-
-            alert(
-                "Mark must be between 0 and 100."
-            );
-
-            return;
-
-        }
-
+        setDebug("Validation passed. Showing loading state in result box...");
 
         result.innerHTML = `
 
@@ -1097,157 +1176,157 @@ form.addEventListener(
         `;
 
 
-        try {
+        setDebug("Sending request to " + API_URL + "/student ...");
 
-
-            const response =
-                await fetch(
-                    `${API_URL}/student`,
-                    {
-
-                        method:
-                            "POST",
-
-                        headers: {
-
-                            "Content-Type":
-                                "application/json"
-
-                        },
-
-                        body:
-                            JSON.stringify({
-
-                                name:
-                                    name,
-
-                                study_hours:
-                                    study_hours,
-
-                                mark:
-                                    mark
-
-                            })
-
-                    }
-                );
-
-
-            const data =
-                await response.json();
-
-
-            if (
-                !response.ok
-            ) {
-
-                throw new Error(
-                    data.detail ||
-                    "Failed to save student."
-                );
-
-            }
-
-
-            /* SHOW RESULT */
-
-
-            result.innerHTML = `
-
-                <div class="result-card">
-
-                    <h3
-                        class="success-title"
-                    >
-
-                        ✅ Student Saved Successfully!
-
-                    </h3>
-
-
-                    <p>
-                        👤
-                        <b>Name:</b>
-                        ${data.name}
-                    </p>
-
-
-                    <p>
-                        📚
-                        <b>Study Hours:</b>
-                        ${data.study_hours}
-                    </p>
-
-
-                    <p>
-                        📝
-                        <b>Mark:</b>
-                        ${data.mark}
-                    </p>
-
-
-                    <p>
-                        🏆
-                        <b>Level:</b>
-                        ${data.level}
-                    </p>
-
-
-                    <p>
-                        💡
-                        <b>Suggestion:</b>
-                        ${data.suggestion}
-                    </p>
-
-
-                    <p>
-                        📖
-                        <b>Study Plan:</b>
-                        ${data.study_plan}
-                    </p>
-
-                </div>
-
-            `;
-
-
-            form.reset();
-
-
-            await loadStudents();
-
-
-        }
-
-
-        catch(error) {
-
-
-            console.error(
-                error
+        const response =
+            await fetch(
+                `${API_URL}/student`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        study_hours: study_hours,
+                        mark: mark
+                    })
+                }
             );
 
 
-            result.innerHTML = `
+        setDebug("Got response, status: " + response.status + ". Parsing JSON...");
 
-                <div class="result-card">
+        const data = await response.json();
 
-                    <h3>
-                        ❌ Error
-                    </h3>
 
-                    <p>
-                        ${error.message}
-                    </p>
-
-                </div>
-
-            `;
-
+        if (!response.ok) {
+            setDebug("Server returned an error: " + JSON.stringify(data));
+            throw new Error(
+                (data && data.detail) || "Failed to save student."
+            );
         }
 
+
+        setDebug("Success! Writing result card into #result box now.");
+
+
+        /* SHOW RESULT */
+
+        result.innerHTML = `
+
+            <div class="result-card">
+
+                <h3
+                    class="success-title"
+                >
+
+                    ✅ Student Saved Successfully!
+
+                </h3>
+
+
+                <p>
+                    👤
+                    <b>Name:</b>
+                    ${data.name}
+                </p>
+
+
+                <p>
+                    📚
+                    <b>Study Hours:</b>
+                    ${data.study_hours}
+                </p>
+
+
+                <p>
+                    📝
+                    <b>Mark:</b>
+                    ${data.mark}
+                </p>
+
+
+                <p>
+                    🏆
+                    <b>Level:</b>
+                    ${data.level}
+                </p>
+
+
+                <p>
+                    💡
+                    <b>Suggestion:</b>
+                    ${data.suggestion}
+                </p>
+
+
+                <p>
+                    📖
+                    <b>Study Plan:</b>
+                    ${data.study_plan}
+                </p>
+
+            </div>
+
+        `;
+
+
+        setDebug("Result card written. Refreshing dashboard list...");
+
+
+        form.reset();
+
+
+        await loadStudents();
+
+
+        setDebug("Done. Dashboard refreshed.");
+
+
     }
-);
+
+
+    catch(error) {
+
+
+        console.error(
+            error
+        );
+
+
+        setDebug("ERROR CAUGHT: " + error.message);
+
+
+        result.innerHTML = `
+
+            <div class="result-card">
+
+                <h3>
+                    ❌ Error
+                </h3>
+
+                <p>
+                    ${error.message}
+                </p>
+
+            </div>
+
+        `;
+
+    }
+
+}
+
+
+window.addEventListener("error", function(event) {
+
+    setDebug(
+        "UNCAUGHT SCRIPT ERROR: " + event.message +
+        " (line " + event.lineno + ")"
+    );
+
+});
 
 
 
@@ -1343,21 +1422,41 @@ function displayStudents(
         students.length === 0
     ) {
 
-        studentsContainer.innerHTML = `
+        const searchBoxValue =
+            document.getElementById(
+                "searchInput"
+            ).value.trim();
 
-            <div class="empty-card">
+        const isSearching =
+            searchBoxValue !== "";
 
-                <h3>
-                    👨‍🎓 No Students Found
-                </h3>
+        studentsContainer.innerHTML = isSearching
+            ? `
+                <div class="empty-card">
 
-                <p>
-                    No matching student found.
-                </p>
+                    <h3>
+                        🔍 Student Not Found
+                    </h3>
 
-            </div>
+                    <p>
+                        No student named "${escapeHtml(searchBoxValue)}" was found.
+                    </p>
 
-        `;
+                </div>
+            `
+            : `
+                <div class="empty-card">
+
+                    <h3>
+                        👨‍🎓 No Students Yet
+                    </h3>
+
+                    <p>
+                        Add a student above to get started.
+                    </p>
+
+                </div>
+            `;
 
         return;
 
@@ -1492,14 +1591,11 @@ function displayStudents(
 
                     <button
                         class="edit-btn"
-                        onclick="editStudent(
-                            ${student.id},
-                            ${JSON.stringify(
-                                student.name
-                            )},
-                            ${student.study_hours},
-                            ${student.mark}
-                        )"
+                        data-action="edit"
+                        data-id="${student.id}"
+                        data-name="${escapeHtml(student.name)}"
+                        data-study-hours="${student.study_hours}"
+                        data-mark="${student.mark}"
                     >
 
                         ✏️ Edit
@@ -1509,11 +1605,8 @@ function displayStudents(
 
                     <button
                         class="delete-btn"
-                        onclick="
-                            deleteStudent(
-                                ${student.id}
-                            )
-                        "
+                        data-action="delete"
+                        data-id="${student.id}"
                     >
 
                         🗑️ Delete
@@ -1693,6 +1786,12 @@ function searchStudents() {
         .toLowerCase();
 
 
+    setDebug(
+        "Search typed: '" + searchText + "'. " +
+        "Total students loaded: " + allStudents.length
+    );
+
+
     if (
         searchText === ""
     ) {
@@ -1718,6 +1817,12 @@ function searchStudents() {
 
             }
         );
+
+
+    setDebug(
+        "Search typed: '" + searchText + "'. " +
+        "Matches found: " + filteredStudents.length
+    );
 
 
     displayStudents(
