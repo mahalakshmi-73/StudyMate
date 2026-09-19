@@ -984,8 +984,11 @@
 ========================================= */
 
 
+// Uses whatever address this page is currently being viewed from,
+// so it works both on your computer (127.0.0.1:8000) and on Render
+// (studymate-ai-ay22.onrender.com) without needing to change anything.
 const API_URL =
-    "http://127.0.0.1:8000";
+    window.location.origin;
 
 
 
