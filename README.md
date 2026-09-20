@@ -12,7 +12,7 @@ The application allows students to enter their study hours and marks. Based on t
 
 > Hosted on Render's free tier — the first load after a period of inactivity may take 30–60 seconds to wake up. Since it's a free demo, added students may be reset periodically.
 
-![Studymate Screenshot](screenshot.png)
+![Studymate Screenshot](studymate.png)
 
 ---
 
